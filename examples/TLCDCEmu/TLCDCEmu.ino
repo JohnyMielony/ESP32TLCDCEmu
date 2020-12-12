@@ -3,9 +3,8 @@
 TLCDCEmu emulator;
 
 void setup(){
-  delay(3000);
+  delay(10);
   emulator.init();
-  delay(2000);
 }
 
 void loop(){
