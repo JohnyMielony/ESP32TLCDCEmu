@@ -40,7 +40,7 @@ extern "C" {
 #define TIMER_DIVIDER         16
 #define TIMER_SCALE           (TIMER_BASE_CLK / TIMER_DIVIDER)
 #define TIMER_INTERVAL0_SEC   (1)
-#define TIMER_INTERVAL1_SEC   (0.02)
+#define TIMER_INTERVAL1_SEC   (0.20)
 #define TEST_WITHOUT_RELOAD   0
 #define TEST_WITH_RELOAD      1
 
@@ -81,7 +81,7 @@ class TLCDCEmu
 	public:
 		TLCDCEmu();
 		~TLCDCEmu();
-		void init();
+		void init(char * btName = "Tuner List CDC Emulator");
 		void talk();
 
 	private:

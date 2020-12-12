@@ -40,6 +40,8 @@ static volatile uint8_t CDC_PlaySequence;
 static QueueHandle_t uart_queue;
 static xQueueHandle timer_queue;
 
+int timeouts = 0;
+
 TLCDCEmu* pTLCDCEmu;
 
 BluetoothA2DPSink btSink;
@@ -59,7 +61,7 @@ TLCDCEmu::~TLCDCEmu(){
 	uart_driver_delete(UART_NUM_2);
 }
 
-void TLCDCEmu::init(){
+void TLCDCEmu::init(char *btName){
 	ESP_LOGI(LOG_TAG,"INIT");
 	CDC_RX_Ptr = 0;
 	ESP_ERROR_CHECK(uart_param_config(UART_NUM_2, &uart_config));
@@ -69,7 +71,7 @@ void TLCDCEmu::init(){
 
 	SPDIFOut *out;
 	out = new SPDIFOut();
-	btSink.start((char*)"LAGUNA",out);
+	btSink.start(btName,out);
 
 	//Timer
 	timer_queue = xQueueCreate(10, sizeof(timer_event_t));
@@ -89,28 +91,28 @@ void TLCDCEmu::talk(){
 
 		case BOOT_SEQUENCE:
 			if (!con1){
-				ESP_LOGD(LOG_TAG,"BOOT 1");
+				ESP_LOGI(LOG_TAG,"BOOT 1");
 				con1 = CDC_SendPacket((uint8_t*)CDC_Payload_BootSequence_1, 3, 1);
 				break;
 			}
 			if (!con2){
-				ESP_LOGD(LOG_TAG,"BOOT 2");
+				ESP_LOGI(LOG_TAG,"BOOT 2");
 				con2 = CDC_SendPacket((uint8_t*)CDC_Payload_BootSequence_2, 6, 1);
 				break;
 			}
 			if (!con3){
-				ESP_LOGD(LOG_TAG,"BOOT 3");
+				ESP_LOGI(LOG_TAG,"BOOT 3");
 				con3 = CDC_SendPacket((uint8_t*)CDC_Payload_BootSequence_3, 2, 1);
 				break;
 			}
 			if (!con4){
-				ESP_LOGD(LOG_TAG,"BOOT 4");
+				ESP_LOGI(LOG_TAG,"BOOT 4");
 				con4 = CDC_SendPacket((uint8_t*)CDC_Payload_BootSequence_4, 5, 1);
 				break;
 			}
 			
 			if(con1 && con2 && con3 && con4){
-				ESP_LOGD(LOG_TAG,"WAIT_HU_VERSION");
+				ESP_LOGI(LOG_TAG,"WAIT_HU_VERSION");
 				CDC_CurrentState = WAIT_HU_VERSION;
 			}
 			else{
@@ -123,13 +125,13 @@ void TLCDCEmu::talk(){
 			break;
 
 		case CONFIRM_HU_VERSION:
-			ESP_LOGD(LOG_TAG,"CONFIRM_HU_VERSION");
+			ESP_LOGI(LOG_TAG,"CONFIRM_HU_VERSION");
 			CDC_SendPacket((uint8_t*)CDC_Payload_ConfirmHuVersion, 2, 1);
 			CDC_CurrentState = OPERATE_STANDBY;
 			break;
 
 		case RECEIVED_PLAY:
-			ESP_LOGD(LOG_TAG,"RECEIVED_PLAY");
+			ESP_LOGI(LOG_TAG,"RECEIVED_PLAY");
 			timer_pause(TIMER_GROUP_0, (timer_idx_t)0);
 			btSink.sendCommand(PLAY);
 			CDC_SendPacket((uint8_t*)CDC_Payload_ConfirmPlay, 2, 1);
@@ -137,7 +139,7 @@ void TLCDCEmu::talk(){
 			break;
 
 		case RECEIVED_PAUSE:
-			ESP_LOGD(LOG_TAG,"RECEIVED_PAUSE");
+			ESP_LOGI(LOG_TAG,"RECEIVED_PAUSE");
 			timer_pause(TIMER_GROUP_0, (timer_idx_t)0);
 			btSink.sendCommand(PAUSE);
 			CDC_SendPacket((uint8_t*)CDC_Payload_ConfirmPause, 2, 1);
@@ -145,14 +147,14 @@ void TLCDCEmu::talk(){
 			break;
 
 		case RECEIVED_CD_CHANGE:
-			ESP_LOGD(LOG_TAG,"RECEIVED_CD_CHANGE");
+			ESP_LOGI(LOG_TAG,"RECEIVED_CD_CHANGE");
 			timer_pause(TIMER_GROUP_0, (timer_idx_t)0);
 			CDC_CurrentState = OPERATE_PREPARE_PLAY;
 			CDC_ConfirmSongChange();
 			break;
 
 		case RECEIVED_NEXT:
-			ESP_LOGD(LOG_TAG,"RECEIVED_NEXT");
+			ESP_LOGI(LOG_TAG,"RECEIVED_NEXT");
 			timer_pause(TIMER_GROUP_0, (timer_idx_t)0);
 			btSink.sendCommand(NEXT);
 			CDC_CurrentState = OPERATE_PREPARE_PLAY;
@@ -160,7 +162,7 @@ void TLCDCEmu::talk(){
 			break;
 
 		case RECEIVED_PREV:
-			ESP_LOGD(LOG_TAG,"RECEIVED_PREV");
+			ESP_LOGI(LOG_TAG,"RECEIVED_PREV");
 			timer_pause(TIMER_GROUP_0, (timer_idx_t)0);
 			btSink.sendCommand(PREV);
 			CDC_CurrentState = OPERATE_PREPARE_PLAY;
@@ -168,7 +170,7 @@ void TLCDCEmu::talk(){
 			break;
 
 		case RECEIVED_STANDBY:
-			ESP_LOGD(LOG_TAG,"RECEIVED_STANDBY");
+			ESP_LOGI(LOG_TAG,"RECEIVED_STANDBY");
 			timer_pause(TIMER_GROUP_0, (timer_idx_t)0);
 			btSink.sendCommand(PAUSE);
 			CDC_SendPacket((uint8_t*)CDC_Payload_ConfirmStandby, 2, 1);
@@ -176,7 +178,7 @@ void TLCDCEmu::talk(){
 			break;
 
 		case OPERATE_PREPARE_PLAY:
-			ESP_LOGD(LOG_TAG,"OPERATE_PREPARE_PLAY");
+			ESP_LOGI(LOG_TAG,"OPERATE_PREPARE_PLAY");
 			timer_start(TIMER_GROUP_0, (timer_idx_t)0);
 			CDC_CurrentState = OPERATE_PLAYING;
 			break;
@@ -208,8 +210,10 @@ uint8_t TLCDCEmu::CDC_SendPacket(uint8_t *data, uint8_t length, uint8_t retries)
 
 			CDC_Wait = WAITING;
 			uart_wait_tx_done(UART_NUM_2, 100);
-
+			timer_set_counter_value(TIMER_GROUP_0, (timer_idx_t)1, 0x00000000ULL);
+			timer_start(TIMER_GROUP_0, (timer_idx_t)1);
 			while(CDC_Wait == WAITING);
+			timer_pause(TIMER_GROUP_0, (timer_idx_t)1);
 
 			if(CDC_Wait == CONFIRMED){
 				CDC_SendSequence++;
@@ -260,7 +264,7 @@ void TLCDCEmu::uart_event_task(void *pvParameters){
                     break;
                 //Others
                 default:
-                    ESP_LOGI(LOG_TAG, "uart event type: %d", event.type);
+                    ESP_LOGD(LOG_TAG, "uart event type: %d", event.type);
                     break;
             }
         }
@@ -271,14 +275,13 @@ void TLCDCEmu::uart_event_task(void *pvParameters){
 }
 
 void TLCDCEmu::readHU(const uint8_t *data, uint16_t length){
-	//ESP_LOGI(LOG_TAG,"READ HU LENGTH: %d",length);
-	
 	for(int i=0;i<length;i++){
-		ESP_LOGD(LOG_TAG,"<--%X",data[i]);
+		ESP_LOGI(LOG_TAG,"<--%X",data[i]);
 		CDC_RX_buffer[CDC_RX_Ptr] = data[i];
 		CDC_RX_Ptr++;
 
 		if(CDC_RX_buffer[0] == 0xC5){ // confirmation
+			ESP_LOGI(LOG_TAG,"<-- C5");
 			CDC_RX_Ptr = 0; //start transimison over
 			CDC_Wait = CONFIRMED; // release waiting for confirmation
 		}
@@ -292,10 +295,10 @@ void TLCDCEmu::readHU(const uint8_t *data, uint16_t length){
 					//ESP_LOG_BUFFER_HEX_LEVEL(LOG_TAG, (const uint8_t*)CDC_RX_buffer, CDC_RX_buffer[2] + 4, ESP_LOG_INFO);
 					uart_write_bytes(UART_NUM_2, (const char*)ACK, 1);
 					uart_wait_tx_done(UART_NUM_2, 100);
-					ESP_LOGD(LOG_TAG,"-->C5");
+					ESP_LOGI(LOG_TAG,"--> C5");
 					if(CDC_RX_buffer[2] == 7 && CDC_RX_buffer[3] == 0x31){
 						CDC_CurrentState = CONFIRM_HU_VERSION;
-						ESP_LOGD(LOG_TAG,"RECEIVED CONFIRM_HU_VERSION");
+						ESP_LOGI(LOG_TAG,"RECEIVED CONFIRM_HU_VERSION");
 					}
 
 					if(CDC_RX_buffer[2] == 1){
@@ -367,6 +370,7 @@ void TLCDCEmu::fakePlay(){
 		case OPERATE_PLAYING:
 			ESP_LOGD(LOG_TAG,"fakePlay OPERATE_PLAYING");
 			CDC_Payload_OperatePlaying[9] = CDC_PlaySequence;
+			//[11] = {0x47, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00};
 			CDC_SendPacket((uint8_t*)CDC_Payload_OperatePlaying, 11, 1);
 			CDC_PlaySequence++;
 			break;
@@ -462,9 +466,10 @@ void TLCDCEmu::timer_evt_task(void *arg){
 				break;
 			
 			case 1:
-				timer_pause(TIMER_GROUP_0, (timer_idx_t)1);
+				timer_pause(TIMER_GROUP_0, (timer_idx_t)evt.timer_idx);
+				timer_set_counter_value(TIMER_GROUP_0, (timer_idx_t)evt.timer_idx, 0x00000000ULL);
 				CDC_Wait = TIMEOUT;
-				ESP_LOGI(LOG_TAG,"TIMEOUT");
+				ESP_LOGD(LOG_TAG,"TIMEOUT");
 				break;
 			
 			default:
